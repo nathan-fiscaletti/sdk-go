@@ -121,6 +121,15 @@ func (c *Client) do(ctx context.Context, httpMethod, path string, requestData an
 	if err != nil {
 		return err
 	}
+
+	// Run context propagators so callers can inject values (e.g. trace context) into the request context.
+	for _, p := range c.clientOpts.Propagators {
+		ctx, err = p.Propagate(ctx, req)
+		if err != nil {
+			return fmt.Errorf("context propagator failed: %w", err)
+		}
+	}
+
 	req = req.WithContext(ctx)
 
 	// Figure out the content type

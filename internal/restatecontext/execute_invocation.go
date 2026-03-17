@@ -14,7 +14,7 @@ import (
 	"github.com/restatedev/sdk-go/internal/statemachine"
 )
 
-func ExecuteInvocation(ctx context.Context, logger *slog.Logger, stateMachine *statemachine.StateMachine, conn io.ReadWriteCloser, handler Handler, dropReplayLogs bool, logHandler slog.Handler, attemptHeaders map[string][]string) error {
+func ExecuteInvocation(ctx context.Context, logger *slog.Logger, stateMachine *statemachine.StateMachine, conn io.ReadWriteCloser, handler Handler, dropReplayLogs bool, logHandler slog.Handler, attemptHeaders map[string][]string, propagators []ContextPropagator) error {
 	// Let's read the input entry
 	invocationInput, err := stateMachine.SysInput(ctx)
 	if err != nil {
@@ -30,11 +30,11 @@ func ExecuteInvocation(ctx context.Context, logger *slog.Logger, stateMachine *s
 	restateCtx := newContext(ctx, stateMachine, invocationInput, conn, attemptHeaders, dropReplayLogs, logHandler)
 
 	// Invoke the handler
-	invoke(restateCtx, handler, logger)
+	invoke(restateCtx, propagators, handler, logger)
 	return nil
 }
 
-func invoke(restateCtx *ctx, handler Handler, logger *slog.Logger) {
+func invoke(restateCtx *ctx, propagators []ContextPropagator, handler Handler, logger *slog.Logger) {
 	// Run read loop on a goroutine
 	go func(restateCtx *ctx, logger *slog.Logger) { restateCtx.readInputLoop(logger) }(restateCtx, logger)
 
@@ -70,9 +70,25 @@ func invoke(restateCtx *ctx, handler Handler, logger *slog.Logger) {
 
 	restateCtx.internalLogger.InfoContext(restateCtx, "Handling invocation")
 
-	var bytes []byte
+	// Run context propagators to build the call context. Each propagator receives the current
+	// (potentially already-enriched) context and returns a new one with additional values.
+	// The result is wrapped back into a full Restate context so subsequent propagators and the
+	// handler all receive a context.Context that also satisfies restate.Context.
+	callCtx := Context(restateCtx)
 	var err error
-	bytes, err = handler.Call(restateCtx, restateCtx.request.Body)
+	for _, p := range propagators {
+		var enriched context.Context
+		enriched, err = p.Propagate(callCtx, &restateCtx.request)
+		if err != nil {
+			break
+		}
+		callCtx = restateCtx.Wrap(enriched)
+	}
+
+	var bytes []byte
+	if err == nil {
+		bytes, err = handler.Call(callCtx, restateCtx.request.Body)
+	}
 
 	if err != nil && errors.IsTerminalError(err) {
 		restateCtx.internalLogger.LogAttrs(restateCtx, slog.LevelWarn, "Invocation returned a terminal failure", log.Error(err))

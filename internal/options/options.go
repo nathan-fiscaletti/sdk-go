@@ -1,11 +1,17 @@
 package options
 
 import (
+	"context"
 	"net/http"
 	"time"
 
 	"github.com/restatedev/sdk-go/encoding"
 )
+
+// IngressContextPropagator enriches the context before an ingress HTTP request is made.
+type IngressContextPropagator interface {
+	Propagate(ctx context.Context, request *http.Request) (context.Context, error)
+}
 
 // OnMaxAttempts determines behavior when max attempts is reached.
 type OnMaxAttempts string
@@ -260,9 +266,10 @@ type ServiceDefinitionOption interface {
 }
 
 type IngressClientOptions struct {
-	HttpClient *http.Client
-	AuthKey    string
-	Codec      encoding.PayloadCodec
+	HttpClient  *http.Client
+	AuthKey     string
+	Codec       encoding.PayloadCodec
+	Propagators []IngressContextPropagator
 }
 
 type IngressClientOption interface {

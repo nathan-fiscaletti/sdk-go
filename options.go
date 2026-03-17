@@ -6,6 +6,7 @@ import (
 
 	"github.com/restatedev/sdk-go/encoding"
 	"github.com/restatedev/sdk-go/internal/options"
+	"github.com/restatedev/sdk-go/internal/restatecontext"
 )
 
 // re-export options types so users can create arrays of them and functions that accept/return them
@@ -32,6 +33,15 @@ type OnMaxAttempts = options.OnMaxAttempts
 // Retry policy option builders
 type InvocationRetryPolicyOption = options.InvocationRetryPolicyOption
 type IngressClientOption = options.IngressClientOption
+
+// ContextPropagator enriches the context passed to invocation handlers. The [Request] argument
+// gives access to request headers, attempt headers (e.g. W3C trace context forwarded by Restate),
+// and the invocation ID. Use [server.Restate.WithPropagator] to register propagators on a server.
+type ContextPropagator = restatecontext.ContextPropagator
+
+// IngressContextPropagator enriches the context before an ingress HTTP request is made.
+// Use [WithPropagator] to add one to an ingress client.
+type IngressContextPropagator = options.IngressContextPropagator
 
 type withCodec struct {
 	codec encoding.Codec
@@ -641,4 +651,19 @@ type withAuthKey struct {
 
 func (w withAuthKey) BeforeIngress(opts *options.IngressClientOptions) {
 	opts.AuthKey = w.authKey
+}
+
+// WithPropagator is an [IngressClientOption] that adds an [IngressContextPropagator] to the ingress
+// client. Propagators are run in order before each HTTP request, allowing callers to enrich the
+// request context (e.g. to inject outgoing trace headers).
+func WithPropagator(p options.IngressContextPropagator) withPropagator {
+	return withPropagator{p}
+}
+
+type withPropagator struct {
+	propagator options.IngressContextPropagator
+}
+
+func (w withPropagator) BeforeIngress(opts *options.IngressClientOptions) {
+	opts.Propagators = append(opts.Propagators, w.propagator)
 }

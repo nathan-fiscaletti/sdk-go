@@ -66,6 +66,7 @@ type Restate struct {
 	keyIDs         []string
 	keySet         identity.KeySetV1
 	protocolMode   internal.ProtocolMode
+	propagators    []restate.ContextPropagator
 }
 
 // NewRestate creates a new instance of Restate server
@@ -88,6 +89,14 @@ func (r *Restate) WithLogger(h slog.Handler, dropReplayLogs bool) *Restate {
 	r.dropReplayLogs = dropReplayLogs
 	r.systemLog = slog.New(log.NewRestateContextHandler(h))
 	r.logHandler = h
+	return r
+}
+
+// WithPropagator adds one or more [restate.ContextPropagator]s that will be run after the Restate context
+// is initialised for each invocation. Propagators are called in order and can enrich the context
+// passed to the handler, for example by extracting trace context from attempt headers.
+func (r *Restate) WithPropagator(propagators ...restate.ContextPropagator) *Restate {
+	r.propagators = append(r.propagators, propagators...)
 	return r
 }
 
@@ -576,7 +585,7 @@ func (r *Restate) handleInvokeRequest(service, method string, writer http.Respon
 	restatecontext.BufPool.Put(buf)
 
 	// Run the handler
-	if err := restatecontext.ExecuteInvocation(ctx, logger, stateMachine, conn, handler, r.dropReplayLogs, logHandler, request.Header); err != nil {
+	if err := restatecontext.ExecuteInvocation(ctx, logger, stateMachine, conn, handler, r.dropReplayLogs, logHandler, request.Header, r.propagators); err != nil {
 		r.systemLog.LogAttrs(ctx, slog.LevelError, "Failed to handle invocation", log.Error(err))
 	}
 }

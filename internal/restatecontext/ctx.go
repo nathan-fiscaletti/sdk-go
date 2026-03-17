@@ -30,6 +30,15 @@ type Request struct {
 	Body []byte
 }
 
+// ContextPropagator enriches the context passed to invocation handlers. Propagators are run after
+// the Restate context is initialised. The [Request] provides access to request headers, attempt
+// headers (e.g. W3C trace context from Restate), and the invocation ID. The returned
+// context.Context is re-wrapped into a new Restate context and passed to the next propagator and
+// ultimately to the handler.
+type ContextPropagator interface {
+	Propagate(ctx context.Context, req *Request) (context.Context, error)
+}
+
 type Context interface {
 	context.Context
 	Log() *slog.Logger
